@@ -9,56 +9,79 @@ dirName = sys.argv[1]
 
 concepts_list = []
 
+#extract each concept
+
 for i, files in enumerate(os.listdir(dirName)):
     print("File name:", files)
 
-    if  files == '2008_000652.mat':
-        filename = os.path.join(dirName, files)
-        mat = scipy.io.loadmat(filename)
-        print("Key features:", mat.keys())
-        anno = mat['anno']
-        anno_struct = anno[0, 0]
+    #if  files == '2008_003497.mat':
+    filename = os.path.join(dirName, files)
+    mat = scipy.io.loadmat(filename)
+            #print("Key features:", mat.keys())
+    anno = mat['anno']
+    anno_struct = anno[0, 0]
 
-        print(anno_struct.dtype.names)
+    #print(anno_struct.dtype.names)
 
-        print("Image name:", anno_struct['imname'])
-        break
+        #print("Image name:", anno_struct['imname'])
+        
+    
+    for i in range(anno_struct['objects'].shape[1]):
+            #print("Object", i ,"name:", anno_struct['objects'][0,i][0][0])
+        parts = anno_struct['objects'][0,i][3]
+            #print(parts.shape)
+        for i in range(parts.shape[1]):
+            part = parts[0, i]
+            label = part[0][0]
+            mask = part[1]
+                
+            if mask.sum() > 0:
+                    #print("This mask exists")
+                    #print("Concept", label, "exists in photo:", anno_struct['imname'])
+
+                if label not in concepts_list:
+                    concepts_list.append(label)
 
 print(i)
+print("Size:", len(concepts_list))
+print(concepts_list)
 
-""" mat = scipy.io.loadmat(dirName)
-print("Key features:", mat.keys()) """
+#create a dataframe with this dataset
 
-""" anno = mat['anno']
+data_rows = []
+concepts_set = set(concepts_list)
 
-anno_struct = anno[0, 0]
+for files in os.listdir(dirName):
+    filename = os.path.join(dirName, files)
+    mat = scipy.io.loadmat(filename)        
+    anno = mat['anno']
+    anno_struct = anno[0, 0]
 
-print(anno_struct.dtype.names)
+    for i in range(anno_struct['objects'].shape[1]):
+            #print("Object", i ,"name:", anno_struct['objects'][0,i][0][0])
+        label_name = anno_struct['objects'][0,i][0][0]
+        parts = anno_struct['objects'][0,i][3]
 
-print("Image name:", anno_struct['imname'])  """
+        row = [files, label_name] + [0] * len(concepts_list)
 
-for i in range(anno_struct['objects'].shape[1]):
-    #print(anno_struct['objects'][0,i][3][0])
-    #print("Object", i, ":", anno_struct['objects'][0,i])
-    print("Object", i ,"name:", anno_struct['objects'][0,i][0][0])
-    parts = anno_struct['objects'][0,i][3]
-    print(parts.shape)
-    for i in range(parts.shape[1]):
-        part = parts[0, i]
-        label = part[0][0]
+            #print(parts.shape)
+        for j in range(parts.shape[1]):
+            part = parts[0, j]
+            label = part[0][0]
+            mask = part[1]
 
-        mask = part[1]
-        if mask.sum() > 0:
-            #print("This mask exists")
-            print("Concept", label, "exists in photo:", anno_struct['imname'])
+            if label in concepts_set and mask.sum() > 0:
+                    #print("This mask exists")
+                    #print("Concept", label, "exists in photo:", anno_struct['imname'])
+                row[concepts_list.index(label)+2] = 1
+            
+        data_rows.append(row)
 
-        #if label == 'head':
-            #print("This is the mask:")
-            #mask = part[1]
-            #if mask.sum() > 0:
-            #   print("This mask exists")
-            #print(f"Shape: {mask.shape}")
-            #plt.imshow(mask, cmap='gray')
-            #plt.show()
+concepts_list = list({str(c) for c in concepts_list})
 
-print("detected obj:", anno_struct['objects'].size)
+dataset = pd.DataFrame(data_rows, columns = ['ID', 'label'] + concepts_list)
+dataset = dataset.fillna(0)
+dataset.to_csv('Pascal10Concepts.csv', index=False)
+
+
+
