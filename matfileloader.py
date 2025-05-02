@@ -51,6 +51,8 @@ print(concepts_list)
 data_rows = []
 concepts_set = set(concepts_list)
 
+label_to_avoid = ['boat', 'bottle', 'chair', 'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
+
 for files in os.listdir(dirName):
     filename = os.path.join(dirName, files)
     mat = scipy.io.loadmat(filename)        
@@ -60,6 +62,9 @@ for files in os.listdir(dirName):
     for i in range(anno_struct['objects'].shape[1]):
             #print("Object", i ,"name:", anno_struct['objects'][0,i][0][0])
         label_name = anno_struct['objects'][0,i][0][0]
+        if label_name in label_to_avoid:
+            continue
+
         parts = anno_struct['objects'][0,i][3]
 
         row = [files, label_name] + [0] * len(concepts_list)
@@ -80,8 +85,9 @@ for files in os.listdir(dirName):
 concepts_list = list({str(c) for c in concepts_list})
 
 dataset = pd.DataFrame(data_rows, columns = ['ID', 'label'] + concepts_list)
+dataset = dataset.drop(columns=['screen', 'pot', 'plant', 'cap'])
 dataset = dataset.fillna(0)
-dataset.to_csv('Pascal10Concepts.csv', index=False)
+dataset.to_csv('Pascal10Concepts_filtered.csv', index=False)
 
 
 
