@@ -11,8 +11,8 @@ concepts_list = []
 
 #extract each concept
 
-for i, files in enumerate(os.listdir(dirName)):
-    print("File name:", files)
+for j, files in enumerate(os.listdir(dirName)):
+    #print("File name:", files)
 
     #if  files == '2008_003497.mat':
     filename = os.path.join(dirName, files)
@@ -42,16 +42,45 @@ for i, files in enumerate(os.listdir(dirName)):
                 if label not in concepts_list:
                     concepts_list.append(label)
 
-print(i)
+print(j)
 print("Size:", len(concepts_list))
-print(concepts_list)
+#print(concepts_list)
 
 #create a dataframe with this dataset
 
 data_rows = []
 concepts_set = set(concepts_list)
 
-label_to_avoid = ['boat', 'bottle', 'chair', 'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
+#print("Concepts set:", concepts_set)
+
+new = ", ".join(map(str, concepts_set))
+print("Concepts set:", new)
+
+wheel_count = new.count('wheel_')
+headlight_count = new.count('headlight_')
+door_count = new.count('door_')
+window_count = new.count('window_')
+engine_count = new.count('engine_')
+cback_count = new.count('cbackside_')
+cfront_count = new.count('cfrontside_')
+cleft_count = new.count('cleftside_')
+cright_count = new.count('crightside_')
+croof_count = new.count('croofside_')
+
+print("Wheel:", wheel_count)
+print("Headlight:", headlight_count)
+print("Door:", door_count)
+print("Window:", window_count)
+print("engine:", engine_count)
+print("Cback:", cback_count)
+print("Cfront:", cfront_count)
+print("Cleft:", cleft_count)
+print("Cright:", cright_count)
+print("Croof:", croof_count)
+
+
+
+""" label_to_avoid = ['boat', 'bottle', 'chair', 'diningtable', 'pottedplant', 'sofa', 'tvmonitor']
 
 for files in os.listdir(dirName):
     filename = os.path.join(dirName, files)
@@ -88,8 +117,4 @@ dataset = pd.DataFrame(data_rows, columns = ['ID', 'label'] + concepts_list)
 dataset = dataset.drop(columns=['screen', 'pot', 'plant', 'cap'])
 dataset = dataset.fillna(0)
 dataset.to_csv('Pascal10Concepts_filtered.csv', index=False)
-
-
-
-
-
+ """
