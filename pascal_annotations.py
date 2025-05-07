@@ -7,8 +7,9 @@ from torch import nn
 import torch.nn.functional as F
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
+from PIL import Image
 from torch.utils.data import Dataset, DataLoader, random_split #delete
-#from torchvision.transforms import Lambda
+from torchvision.transforms import Lambda
 #from torchview import draw_graph
 #from torchinfo import summary
 #import hiddenlayer as hl
@@ -19,6 +20,7 @@ import random
 import copy
 import os
 import re
+import sys
 
 ''' 
 
@@ -36,21 +38,6 @@ import re
         nest_mom: Nesterov's momentum
 
 '''
-
-""" dataset = dataset
-
-train_transform = transforms.Compose([
-    transforms.Resize(224, 224),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomCrop((224, 224)),
-    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3),
-    transforms.ToTensor()
-])
-
-other_transform = transforms.Compose([
-    transforms.Resize(224, 224),
-    transforms.ToTensor()
-]) """
 
 ''' 
     Obtain 1 row per image, each rows is selected as follows:
@@ -113,3 +100,74 @@ print(filtered_df.shape)
 print('Created col:', multi_concepts)
 print('Dropped col:', col_to_drop)
 print(filtered_df)
+filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
+
+annotations_file = 'Pascal10_1RowPerImage_Concepts_filtered.csv'
+images_dir = sys.argv[1] #/Users/niccolozenaro/Università/Machine Learning/VOCdevkit/VOC2010/JPEGImages
+
+class CustomImgSegmentationsDataset(Dataset):
+    def __init__(self, img_dir, annotations_file, transform=None):
+        self.img_dir = img_dir
+        self.transform = transform
+
+        df = pd.read_csv(annotations_file)
+        df['img_base'] = df.iloc[:, 0].apply(lambda x: os.path.splitext(x)[0])
+        df['img_path'] = df['img_base'].apply(lambda x: os.path.join(img_dir, x  + '.jpg'))
+
+        self.img_data = df[df['img_path'].apply(os.path.exists)].reset_index(drop=True)
+
+    def __len__(self):
+        return len(self.img_data)
+
+    def __getitem__(self, index):
+
+        row = self.img_data.iloc[index]
+        img_path = row['img_path']
+        label = row.iloc[1]
+        img_id = row['img_base']
+        
+        img = Image.open(img_path).convert('RGB')
+
+        if self.transform:
+            img = self.transform(img)
+
+        return img, label, img_id
+    
+
+dataset = CustomImgSegmentationsDataset(images_dir, annotations_file, transform=None)
+
+train_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomCrop((224, 224)),
+    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3),
+    transforms.ToTensor()
+    ])
+other_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor()
+])
+
+train_data, test_data, val_data = random_split(dataset, [0.7, 0.2, 0.1])
+print(f"Dataset shape after splitting: training={len(train_data)}, testing={len(test_data)}, validation={len(val_data)}")
+
+train_data.dataset.transform = train_transform
+val_data.dataset.transform = other_transform
+test_data.dataset.transform = other_transform
+
+batch_size = 2
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+
+for img, label, img_id in train_loader:
+    print(f"Image shape: {img.shape[0]}, label: {label[0]}, img_id: {img_id[0]}")
+
+    image = img[0].numpy().transpose(1, 2, 0)
+    image = np.clip(image, 0, 1)
+
+    plt.imshow(image)
+    plt.title(f"Label: {label[0]}, img_id: {img_id[0]}")
+    plt.show()
+    break
+    
