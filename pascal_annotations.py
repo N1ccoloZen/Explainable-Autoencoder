@@ -11,7 +11,7 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader, random_split #delete
 from torchvision.transforms import Lambda
 #from torchview import draw_graph
-#from torchinfo import summary
+from torchsummary import summary
 #import hiddenlayer as hl
 from torchvision import models
 from timeit import default_timer as timer
@@ -46,7 +46,7 @@ import sys
         3. We keep the row that activates the most concepts
 '''
 
-df = pd.read_csv('Pascal10Concepts_filtered.csv')
+df = pd.read_csv('Pascal10Prova1.csv')
 
 concept_col = [col for col in df.columns if col not in ['ID', 'label']]
 
@@ -65,7 +65,7 @@ for img_id, group_by_ID in df.groupby('ID'):
     filter_rows.append(most_concepts_active)
 
 filtered_df = pd.DataFrame(filter_rows)
-filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
+#filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
 
 print(filtered_df.shape)
 
@@ -97,10 +97,10 @@ for col in concept_col:
 filtered_df.drop(columns=col_to_drop, inplace=True)
 
 print(filtered_df.shape)
-print('Created col:', multi_concepts)
-print('Dropped col:', col_to_drop)
+#print('Created col:', multi_concepts)
+#print('Dropped col:', col_to_drop)
 print(filtered_df)
-filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
+#filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
 
 annotations_file = 'Pascal10_1RowPerImage_Concepts_filtered.csv'
 images_dir = sys.argv[1] #/Users/niccolozenaro/Università/Machine Learning/VOCdevkit/VOC2010/JPEGImages
@@ -111,8 +111,10 @@ class CustomImgSegmentationsDataset(Dataset):
         self.transform = transform
 
         df = pd.read_csv(annotations_file)
-        df['img_base'] = df.iloc[:, 0].apply(lambda x: os.path.splitext(x)[0])
+        df['img_base'] = df.iloc[:, 0].apply(lambda x: os.path.splitext(x.strip())[0])
         df['img_path'] = df['img_base'].apply(lambda x: os.path.join(img_dir, x  + '.jpg'))
+
+        print(df['img_path'].head(5))
 
         self.img_data = df[df['img_path'].apply(os.path.exists)].reset_index(drop=True)
 
@@ -148,6 +150,8 @@ other_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
+print('Dataset shape before splitting is:', dataset.__len__())
+
 train_data, test_data, val_data = random_split(dataset, [0.7, 0.2, 0.1])
 print(f"Dataset shape after splitting: training={len(train_data)}, testing={len(test_data)}, validation={len(val_data)}")
 
@@ -171,3 +175,11 @@ for img, label, img_id in train_loader:
     plt.show()
     break
     
+from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
+ResNet50 = resnet50(weights=ResNet50_Weights.DEFAULT)
+ResNet18 = resnet18(weights=ResNet18_Weights.DEFAULT)
+
+summary(ResNet50, (3, 224, 224), device='cpu')
+summary(ResNet18, (3, 224, 224), device='cpu')
+
+
