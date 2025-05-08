@@ -114,7 +114,7 @@ class CustomImgSegmentationsDataset(Dataset):
         df['img_base'] = df.iloc[:, 0].apply(lambda x: os.path.splitext(x.strip())[0])
         df['img_path'] = df['img_base'].apply(lambda x: os.path.join(img_dir, x  + '.jpg'))
 
-        print(df['img_path'].head(5))
+        #print(df['img_path'].head(5))
 
         self.img_data = df[df['img_path'].apply(os.path.exists)].reset_index(drop=True)
 
@@ -127,13 +127,14 @@ class CustomImgSegmentationsDataset(Dataset):
         img_path = row['img_path']
         label = row.iloc[1]
         img_id = row['img_base']
+        concepts = torch.tensor(row.iloc[2:-2].values.astype(np.float32))
         
         img = Image.open(img_path).convert('RGB')
 
         if self.transform:
             img = self.transform(img)
 
-        return img, label, img_id
+        return img, label, img_id, concepts
     
 
 dataset = CustomImgSegmentationsDataset(images_dir, annotations_file, transform=None)
@@ -142,6 +143,7 @@ train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
     transforms.RandomCrop((224, 224)),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3),
     transforms.ToTensor()
     ])
@@ -164,8 +166,12 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
-for img, label, img_id in train_loader:
+concepts = sorted(list(pd.read_csv('Pascal10_1RowPerImage_Concepts_filtered.csv').columns)[2:-2])
+print(f"Concepts: {concepts}")
+
+for img, label, img_id, concepts in train_loader:
     print(f"Image shape: {img.shape[0]}, label: {label[0]}, img_id: {img_id[0]}")
+    print(f'Binary concepts: {concepts[0]}')
 
     image = img[0].numpy().transpose(1, 2, 0)
     image = np.clip(image, 0, 1)
@@ -181,5 +187,4 @@ ResNet18 = resnet18(weights=ResNet18_Weights.DEFAULT)
 
 summary(ResNet50, (3, 224, 224), device='cpu')
 summary(ResNet18, (3, 224, 224), device='cpu')
-
 
