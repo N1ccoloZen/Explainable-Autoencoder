@@ -16,6 +16,7 @@ from torchsummary import summary
 from torchvision import models
 from timeit import default_timer as timer
 #import warnings
+import hiddenlayer as hl
 import random
 import copy
 import os
@@ -45,6 +46,15 @@ import sys
         2. For each image, we select the most frequent label or object
         3. We keep the row that activates the most concepts
 '''
+print("You are using:", sys.platform)
+print(f"{torch.__version__=}")
+print("MPS support=", torch.backends.mps.is_available())
+if torch.backends.mps.is_available():
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+# Set seed for reproducibility
+torch.manual_seed(43)
 
 df = pd.read_csv('Pascal10Prova1.csv')
 
@@ -55,19 +65,22 @@ filter_rows = []
 for img_id, group_by_ID in df.groupby('ID'):
 
     label_counts = group_by_ID['label'].value_counts()
-    most_common_label = label_counts.idxmax() #this is most freq label
+    most_freq = label_counts.max()
+    #most_common_label = label_counts.idxmax() #this is most freq label
 
-    label_group = group_by_ID[group_by_ID['label'] == most_common_label].copy()
+    most_common_label = label_counts[label_counts == most_freq].index.to_list() #all labels with hightest freq
+    label_group = group_by_ID[group_by_ID['label'].isin(most_common_label)].copy() #most freq labels, we can have a tie so we count concepts
+    #label_group = group_by_ID[group_by_ID['label'] == most_common_label].copy()
     label_group['sum_of_concepts'] = label_group[concept_col].sum(axis=1) #look for the one with most concepts activated
+    row_most_concepts = label_group.loc[label_group['sum_of_concepts'].idxmax()].drop('sum_of_concepts') #this is the one with most concepts activated, resolve the tie
+    #most_concepts_active = label_group.loc[label_group['sum_of_concepts'].idxmax()].drop('sum_of_concepts') #this is the one with most concepts activated
 
-    most_concepts_active = label_group.loc[label_group['sum_of_concepts'].idxmax()].drop('sum_of_concepts') #this is the one with most concepts activated
-
-    filter_rows.append(most_concepts_active)
+    filter_rows.append(row_most_concepts)
 
 filtered_df = pd.DataFrame(filter_rows)
-#filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
+filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
 
-print(filtered_df.shape)
+#print(filtered_df.shape)
 
 ''' 
     Now the dataframe has to be processed a little bit more. It contains repetitions of concepts (eg. wheel appears 8 times, window 20 times).
@@ -96,11 +109,11 @@ for col in concept_col:
 
 filtered_df.drop(columns=col_to_drop, inplace=True)
 
-print(filtered_df.shape)
+#print(filtered_df.shape)
 #print('Created col:', multi_concepts)
 #print('Dropped col:', col_to_drop)
-print(filtered_df)
-#filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
+#print(filtered_df)
+filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
 
 annotations_file = 'Pascal10_1RowPerImage_Concepts_filtered.csv'
 images_dir = sys.argv[1] #/Users/niccolozenaro/Università/Machine Learning/VOCdevkit/VOC2010/JPEGImages
@@ -161,17 +174,20 @@ train_data.dataset.transform = train_transform
 val_data.dataset.transform = other_transform
 test_data.dataset.transform = other_transform
 
-batch_size = 2
+batch_size = 16
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
 
-concepts = sorted(list(pd.read_csv('Pascal10_1RowPerImage_Concepts_filtered.csv').columns)[2:-2])
-print(f"Concepts: {concepts}")
+concepts_list = list(pd.read_csv('Pascal10_1RowPerImage_Concepts_filtered.csv').columns)[2:]
+#print(f"Concepts: {concepts}")
 
 for img, label, img_id, concepts in train_loader:
-    print(f"Image shape: {img.shape[0]}, label: {label[0]}, img_id: {img_id[0]}")
-    print(f'Binary concepts: {concepts[0]}')
+    print(f"Image shape: {img[0].shape}, label: {label[0]}, img_id: {img_id[0]}")
+    
+    for i, concept in enumerate(concepts[0]):
+        if concept == 1:
+            print(f'Binary concept {concepts_list[i]} is activated')
 
     image = img[0].numpy().transpose(1, 2, 0)
     image = np.clip(image, 0, 1)
@@ -182,9 +198,140 @@ for img, label, img_id, concepts in train_loader:
     break
     
 from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
-ResNet50 = resnet50(weights=ResNet50_Weights.DEFAULT)
-ResNet18 = resnet18(weights=ResNet18_Weights.DEFAULT)
+#ResNet50 = resnet50(weights=ResNet50_Weights.DEFAULT)
+#ResNet18 = resnet18(weights=ResNet18_Weights.DEFAULT)
 
-summary(ResNet50, (3, 224, 224), device='cpu')
-summary(ResNet18, (3, 224, 224), device='cpu')
+#summary(ResNet50, (3, 224, 224), device=device)
+#summary(ResNet18, (3, 224, 224), device=device)
+
+class TuneCNNAttributes(nn.Module):
+    def __init__(self, model, num_concepts, model_weights, freeze_backbone=True):
+        super(TuneCNNAttributes, self).__init__()
+
+        self.resnet = model(weights = model_weights)
+
+        if freeze_backbone:
+            for name, params in self.resnet.named_parameters():
+                if 'fc' in name:
+                    params.requires_grad = True
+                else:
+                    params.requires_grad = False
+            
+        in_features = self.resnet.fc.in_features
+        self.resnet.fc = nn.Linear(in_features, num_concepts)
+
+    def forward(self, x):
+        return self.resnet(x)
+    
+#training function
+def trainFineTune (model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
+    model.to(device)
+    
+    loss_train, loss_val = [], []
+    acc_train, acc_val = [], []
+    history1 = hl.History()
+    canvas1 = hl.Canvas()
+
+    for epoch in range(num_epochs):
+        model.train()
+        tot_acc_train, tot_count_train, n_train_batches, tot_loss_train = 0, 0, 0, 0
+
+        for img, label, img_ID, concepts in train_loader:
+            img = img.to(device)
+            concepts = concepts.to(device)
+            #attribute = attributes[img_ID-1].to(device)
+            optimizer.zero_grad()
+            prediction = model(img)
+            loss = criterion(prediction, concepts)
+
+            tot_loss_train += loss.item()
+            loss.backward()
+            optimizer.step()
+
+            tot_acc_train += ((prediction > 0.5).float() == concepts).sum().item()
+            tot_count_train += concepts.numel()
+            n_train_batches += 1
+
+        avg_loss_train = tot_loss_train / n_train_batches
+        loss_train.append(avg_loss_train)
+        accuracy_train = (tot_acc_train / tot_count_train) * 100
+        acc_train.append(accuracy_train)
+
+        tot_acc_val, tot_count_val, n_val_batches, tot_loss_val = 0, 0, 0, 0
+
+        with torch.no_grad():
+            model.eval()
+            for img, label, img_ID, concepts in val_loader:
+                img = img.to(device)
+                concepts = concepts.to(device)
+                #attribute = attributes[img_ID-1].to(device)
+                prediction = model(img)
+                loss = criterion(prediction, concepts)
+
+                tot_loss_val += loss.item()
+
+                tot_acc_val += ((prediction > 0.5).float() == concepts).sum().item()
+                tot_count_val += concepts.numel()
+                n_val_batches += 1
+        
+        avg_loss_val = tot_loss_val / n_val_batches
+        loss_val.append(avg_loss_val)
+        accuracy_val = (tot_acc_val / tot_count_val) * 100
+        acc_val.append(accuracy_val)
+
+        if epoch % 1 == 0:
+            history1.log(epoch, train_loss = avg_loss_train, train_accuracy = accuracy_train, val_loss = avg_loss_val, val_accuracy = accuracy_val)
+            with canvas1:
+                canvas1.draw_plot([history1["train_loss"], history1["val_loss"]], labels=['Training Loss', 'Validation Loss'])
+                canvas1.draw_plot([history1["train_accuracy"], history1["val_accuracy"]], labels=['Training Accuracy', 'Validation Accuracy'])
+
+    return loss_train, acc_train, loss_val, acc_val
+
+#if you want to plot again
+def plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val):
+    
+    plt.figure(figsize=(10, 12))
+
+    plt.subplot(2, 1, 1)
+    plt.grid()
+    plt.plot(range(len(acc_train)), acc_train, label="Training Accuracy")
+    plt.plot(range(len(acc_val)), acc_val, label="Validation Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.legend(loc='best')
+
+    plt.subplot(2, 1, 2)
+    plt.grid()
+    plt.plot(range(len(loss_train)), loss_train, label="Training Loss")
+    plt.plot(range(len(loss_val)), loss_val, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend(loc='best')
+
+    plt.show()
+
+num_epochs = 5
+lr = 1e-3
+
+for _, _, _, concepts in train_loader:
+    num_concepts = concepts[0].shape[0]
+
+ResNetTuned = TuneCNNAttributes(model=resnet18, num_concepts=num_concepts, model_weights=ResNet18_Weights.DEFAULT, freeze_backbone=True).to(device)
+pos_weight = torch.tensor([11.0]*num_concepts).to(device)
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+optimizer = torch.optim.Adam(ResNetTuned.parameters(), lr=lr, weight_decay=5e-4)
+
+start = timer()
+
+torch.mps.empty_cache()
+
+loss_train, acc_train, loss_val, acc_val = trainFineTune(ResNetTuned, train_loader, val_loader, criterion, optimizer, num_epochs, device)
+
+end = timer()
+
+print(f"Training took {end-start:.2f} seconds")
+
+torch.mps.empty_cache()
+
+plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val)
 
