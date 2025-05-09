@@ -53,9 +53,9 @@ print("Size:", len(concepts_list))
 data_rows = []
 concepts_set = sorted(set(concepts_list))
 
-print("Concepts set:", concepts_set)
+#print("Concepts set:", concepts_set)
 
-print(concepts_set[3])
+#print(concepts_set[3])
 """
 new = ", ".join(map(str, concepts_set))
 print("Concepts set:", new)

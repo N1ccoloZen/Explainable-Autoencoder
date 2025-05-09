@@ -5,7 +5,7 @@ import torch
 from torch import nn 
 #from torch.nn import Conv2d, MaxPool2d, Linear
 import torch.nn.functional as F
-from torchvision.datasets import ImageFolder
+from sklearn.preprocessing import OneHotEncoder
 from torchvision import transforms
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader, random_split #delete
@@ -54,7 +54,7 @@ if torch.backends.mps.is_available():
     print(f"Using device: {device}")
 
 # Set seed for reproducibility
-torch.manual_seed(43)
+torch.manual_seed(19)
 
 df = pd.read_csv('Pascal10Prova1.csv')
 
@@ -78,7 +78,7 @@ for img_id, group_by_ID in df.groupby('ID'):
     filter_rows.append(row_most_concepts)
 
 filtered_df = pd.DataFrame(filter_rows)
-filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
+#filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
 
 #print(filtered_df.shape)
 
@@ -113,9 +113,19 @@ filtered_df.drop(columns=col_to_drop, inplace=True)
 #print('Created col:', multi_concepts)
 #print('Dropped col:', col_to_drop)
 #print(filtered_df)
-filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
+#filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
 
 annotations_file = 'Pascal10_1RowPerImage_Concepts_filtered.csv'
+
+ordered_labels = sorted(filtered_df['label'].unique())
+
+""" enc = OneHotEncoder()
+enc.fit(np.array(ordered_labels).reshape(-1, 1))
+
+encoded_labels = enc.transform(np.array(filtered_df['label']).reshape(-1, 1)).toarray()
+
+ """
+
 images_dir = sys.argv[1] #/Users/niccolozenaro/Università/Machine Learning/VOCdevkit/VOC2010/JPEGImages
 
 class CustomImgSegmentationsDataset(Dataset):
@@ -128,6 +138,14 @@ class CustomImgSegmentationsDataset(Dataset):
         df['img_path'] = df['img_base'].apply(lambda x: os.path.join(img_dir, x  + '.jpg'))
 
         #print(df['img_path'].head(5))
+        ordered_labels = sorted(df['label'].unique())
+
+        enc = OneHotEncoder()
+        enc.fit(np.array(ordered_labels).reshape(-1, 1))
+
+        encoded_labels = enc.transform(np.array(df['label']).reshape(-1, 1)).toarray()
+
+        df['label'] = list(encoded_labels)
 
         self.img_data = df[df['img_path'].apply(os.path.exists)].reset_index(drop=True)
 
@@ -138,7 +156,7 @@ class CustomImgSegmentationsDataset(Dataset):
 
         row = self.img_data.iloc[index]
         img_path = row['img_path']
-        label = row.iloc[1]
+        label = torch.tensor(row['label'], dtype=torch.float32)
         img_id = row['img_base']
         concepts = torch.tensor(row.iloc[2:-2].values.astype(np.float32))
         
@@ -183,7 +201,10 @@ concepts_list = list(pd.read_csv('Pascal10_1RowPerImage_Concepts_filtered.csv').
 #print(f"Concepts: {concepts}")
 
 for img, label, img_id, concepts in train_loader:
-    print(f"Image shape: {img[0].shape}, label: {label[0]}, img_id: {img_id[0]}")
+
+    idx = label[0].argmax()
+
+    print(f"Image shape: {img[0].shape}, label: {ordered_labels[idx]}, img_id: {img_id[0]}")
     
     for i, concept in enumerate(concepts[0]):
         if concept == 1:
@@ -193,7 +214,7 @@ for img, label, img_id, concepts in train_loader:
     image = np.clip(image, 0, 1)
 
     plt.imshow(image)
-    plt.title(f"Label: {label[0]}, img_id: {img_id[0]}")
+    plt.title(f"Label: {ordered_labels[idx]}, img_id: {img_id[0]}")
     plt.show()
     break
     
@@ -288,9 +309,21 @@ def trainFineTune (model, train_loader, val_loader, criterion, optimizer, num_ep
     return loss_train, acc_train, loss_val, acc_val
 
 #if you want to plot again
-def plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val):
+
+def to_cpu(tensor): #only for Apple M1/M2/M3 have to move tensors to CPU
+    #if device == 'mps':
+    return [t.cpu().item() if torch.is_tensor(t) else t for t in tensor]
+    #else:
+     #   [t.item() if torch.is_tensor(t) else t for t in tensor]
+
+def plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val, name):
     
     plt.figure(figsize=(10, 12))
+
+    loss_train = to_cpu(loss_train)
+    acc_train = to_cpu(acc_train)
+    loss_val = to_cpu(loss_val)
+    acc_val = to_cpu(acc_val)
 
     plt.subplot(2, 1, 1)
     plt.grid()
@@ -308,7 +341,10 @@ def plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val):
     plt.ylabel("Loss")
     plt.legend(loc='best')
 
+    #plt.savefig(name + '.png')
     plt.show()
+    plt.close()
+
 
 num_epochs = 5
 lr = 1e-3
@@ -316,7 +352,7 @@ lr = 1e-3
 for _, _, _, concepts in train_loader:
     num_concepts = concepts[0].shape[0]
 
-ResNetTuned = TuneCNNAttributes(model=resnet18, num_concepts=num_concepts, model_weights=ResNet18_Weights.DEFAULT, freeze_backbone=True).to(device)
+""" ResNetTuned = TuneCNNAttributes(model=resnet18, num_concepts=num_concepts, model_weights=ResNet18_Weights.DEFAULT, freeze_backbone=True).to(device)
 pos_weight = torch.tensor([11.0]*num_concepts).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 optimizer = torch.optim.Adam(ResNetTuned.parameters(), lr=lr, weight_decay=5e-4)
@@ -333,5 +369,146 @@ print(f"Training took {end-start:.2f} seconds")
 
 torch.mps.empty_cache()
 
-plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val)
+plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val, 'img1') """
 
+class MLP(nn.Module):
+    def __init__(self, input_dim, num_classes, dropout_val, expand_dim=[]):
+        super(MLP, self).__init__()
+
+        self.layers = nn.ModuleList()
+        self.dropout = nn.Dropout(dropout_val)
+        self.batchnorm = nn.ModuleList()
+        self.activation = nn.LeakyReLU()
+
+        if len(expand_dim) == 0:
+            self.layers.append(nn.Linear(input_dim, num_classes))
+        else:
+            for layer_idx in range(len(expand_dim)):
+                if layer_idx == 0:
+                    self.layers.append(nn.Linear(input_dim, expand_dim[0]))
+                else:
+                    self.layers.append(nn.Linear(expand_dim[layer_idx-1], expand_dim[layer_idx]))
+                
+                self.batchnorm.append(nn.BatchNorm1d(expand_dim[layer_idx]))
+
+            self.layers.append(nn.Linear(expand_dim[-1], num_classes))
+        
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        if len(self.layers) == 1:
+            return self.layers[0](x)
+        else:
+            for i, layer in enumerate(self.layers[:-1]):
+                x = layer(x)
+                x = self.batchnorm[i](x)
+                x = self.activation(x)
+                x = self.dropout(x)
+            return self.layers[-1](x)
+        
+def trainMLP(model, train_loader, val_loader, criterion, optimizer, num_epochs, early_stopping, tolerance, device):
+    model.to(device)
+
+    loss_train, loss_val = [], []
+    acc_train, acc_val = [], []
+    history1 = hl.History()
+    canvas1 = hl.Canvas()
+
+    best_val_loss = float('inf')
+    best_model = None
+    num_epochs_no_improve = 0
+
+    for epoch in range(num_epochs):
+        model.train()
+        tot_acc_train, tot_count_train, n_train_batches, tot_loss_train = 0, 0, 0, 0
+        for _, label, _, concept in train_loader:
+            concept = concept.to(device)
+            label = torch.argmax(label, dim=1).to(device)
+            logits = model(concept)
+            loss = criterion(logits, label)
+            optimizer.zero_grad()
+            tot_loss_train += loss
+            
+            loss.backward()
+            optimizer.step()
+
+            pred_label = torch.argmax(logits, dim=1)
+            accuracy = (pred_label == label).sum().item()
+
+            tot_acc_train += accuracy
+            tot_count_train += label.size(0)
+            n_train_batches += 1 
+
+        avg_loss_train = tot_loss_train / n_train_batches
+        loss_train.append(avg_loss_train)
+        accuracy_train = (tot_acc_train / tot_count_train) * 100
+        acc_train.append(accuracy_train)
+
+        tot_acc_val, tot_count_val, n_val_batches, tot_loss_val = 0, 0, 0, 0
+
+        with torch.no_grad():
+            model.eval()
+
+            for _, label, _, concept in val_loader:
+                concept = concept.to(device)
+                label = torch.argmax(label, dim=1).to(device)
+                logits = model(concept)
+                loss = criterion(logits, label)
+
+                tot_loss_val += loss
+
+                pred_label = torch.argmax(logits, dim=1)
+                accuracy = (pred_label == label).sum().item()
+
+                tot_acc_val += accuracy
+                tot_count_val += label.size(0)
+                n_val_batches += 1
+
+            avg_loss_val = tot_loss_val / n_val_batches
+            loss_val.append(avg_loss_val)
+            accuracy_val = (tot_acc_val / tot_count_val) * 100
+            acc_val.append(accuracy_val)
+
+            if epoch % 1 == 0:
+                history1.log(epoch, train_loss = avg_loss_train, train_accuracy = accuracy_train, val_loss = avg_loss_val, val_accuracy = accuracy_val)
+            with canvas1:
+                canvas1.draw_plot([history1["train_loss"], history1["val_loss"]], labels=['Training Loss', 'Validation Loss'])
+                canvas1.draw_plot([history1["train_accuracy"], history1["val_accuracy"]], labels=['Training Accuracy', 'Validation Accuracy'])
+
+            if avg_loss_val < best_val_loss and (avg_loss_train - avg_loss_val) > tolerance:
+                best_val_loss = avg_loss_val
+                best_model = copy.deepcopy(model)
+                num_epochs_no_improve = 0
+            else:
+                num_epochs_no_improve += 1
+
+            if num_epochs_no_improve >= early_stopping:
+                print(f"Early stopping at epoch {epoch}. Best validation loss: {best_val_loss:.4f}")
+                break
+                
+
+    return loss_train, acc_train, loss_val, acc_val, best_model
+
+MLP_model = MLP(input_dim=num_concepts, num_classes=len(ordered_labels), dropout_val=0.3, expand_dim=[256, 512, 256, 128]).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(MLP_model.parameters(), lr=1e-4, weight_decay=1e-5, momentum=0.7, nesterov=True)
+
+start = timer()
+
+torch.mps.empty_cache()
+
+loss_train, acc_train, loss_val, acc_val, best_model = trainMLP(MLP_model, train_loader, val_loader, criterion, optimizer, num_epochs=10, early_stopping=5, tolerance=0.1, device=device)
+
+end = timer()
+print(type(acc_train), acc_train)
+print(type(acc_val), acc_val)
+print(type(loss_train), loss_train)
+print(type(loss_val), loss_val)
+
+plot_learning_acc_loss(loss_train, acc_train, loss_val, acc_val, 'MLPprova1')
