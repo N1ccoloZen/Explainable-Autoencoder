@@ -54,8 +54,8 @@ if torch.backends.mps.is_available():
     print(f"Using device: {device}")
 
 # Set seed for reproducibility
-torch.manual_seed(19)
-
+torch.manual_seed(43)
+'''
 df = pd.read_csv('Pascal10Prova1.csv')
 
 concept_col = [col for col in df.columns if col not in ['ID', 'label']]
@@ -81,12 +81,13 @@ filtered_df = pd.DataFrame(filter_rows)
 #filtered_df.to_csv('Pascal10_1RowPerImage.csv', index=False)
 
 #print(filtered_df.shape)
+'''
 
 ''' 
     Now the dataframe has to be processed a little bit more. It contains repetitions of concepts (eg. wheel appears 8 times, window 20 times).
     If an objects has more than 4 of those repetitive concepts, we sobtitute those concepts with a 'lots_of_X' or 'multi_X' concept.
 '''
-
+'''
 col_to_drop = set()
 multi_concepts = set()
 
@@ -114,17 +115,10 @@ filtered_df.drop(columns=col_to_drop, inplace=True)
 #print('Dropped col:', col_to_drop)
 #print(filtered_df)
 #filtered_df.to_csv('Pascal10_1RowPerImage_Concepts_filtered.csv', index=False)
-
-annotations_file = 'Pascal10_1RowPerImage_Concepts_filtered.csv'
-
+'''
+annotations_file = '/Users/niccolozenaro/Università/Machine Learning/Explainable AutoEncoder/csvFiles/Pascal10_1RowPerImage_Concepts_filtered.csv'
+filtered_df = pd.read_csv(annotations_file)
 ordered_labels = sorted(filtered_df['label'].unique())
-
-""" enc = OneHotEncoder()
-enc.fit(np.array(ordered_labels).reshape(-1, 1))
-
-encoded_labels = enc.transform(np.array(filtered_df['label']).reshape(-1, 1)).toarray()
-
- """
 
 images_dir = sys.argv[1] #/Users/niccolozenaro/Università/Machine Learning/VOCdevkit/VOC2010/JPEGImages
 
